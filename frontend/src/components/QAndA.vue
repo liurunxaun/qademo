@@ -35,30 +35,12 @@ export default {
       question: '',
       answers: [],
       answer1: '',
-      answer2: '',
-      answer3: '',
-      graphData: {
-        nodes: [
-          { id: '患者', name: '患者'},
-          { id: '声音嘶哑', name: '声音嘶哑'},
-          { id: '咽喉炎', name: '咽喉炎'},
-          { id: '对喉咙进行物理检查', name: '对喉咙进行物理检查'},
-          { id: '喉镜检查', name: '喉镜检查'},
-          { id: '消炎药和类固醇', name: '消炎药和类固醇'},
-          { id: '休息嗓子，避免刺激', name: '休息嗓子，避免刺激'},
-        ],
-        links: [
-          { source: '患者', target: '声音嘶哑', label: { show: true, formatter: '一直有' } },
-          { source: '声音嘶哑', target: '咽喉炎', label: { show: true, formatter: '可能是由于' } },
-          { source: '咽喉炎', target: '对喉咙进行物理检查', label: { show: true, formatter: '需要' } },
-          { source: '咽喉炎', target: '喉镜检查', label: { show: true, formatter: '可包括' } },
-          { source: '咽喉炎', target: '消炎药和类固醇', label: { show: true, formatter: '可以用' } },
-          { source: '咽喉炎', target: '休息嗓子，避免刺激', label: { show: true, formatter: '应同时服用' } },
-        ],
-      }
+      answer2: [],
+      answer3: {},
     };
   },
   mounted() {
+    window.addEventListener('resize', this.resizeChart);
   },
   methods: {
     async sendMessage() {
@@ -88,15 +70,12 @@ export default {
             this.temp_answer += "<br><br>" + this.answer2
           }
           if (this.answer3 != null) {
-            this.temp_answer += "<br><br>" + this.answer3
+            // 渲染知识图谱
+            this.renderKnowledgeGraph();
           }
           setTimeout(() => {
             this.messages.push({ sender: 'bot', text: this.temp_answer });
           }, 1000);
-
-          // 渲染知识图谱
-          this.renderKnowledgeGraph();
-
         }catch (error) {
           console.error("Error fetching answer:", error);
           // 模拟AI的回复
@@ -107,58 +86,68 @@ export default {
       }
     },
 
-    renderKnowledgeGraph (){
-      this.chartInstance = echarts.init(document.getElementById('graph'));
-      this.chartInstance.setOption({
+    resizeChart() {
+      const chartDom = document.getElementById('graph');
+      const myChart = echarts.getInstanceByDom(chartDom);
+      if (myChart) {
+        myChart.resize();
+      }
+    },
+
+    renderKnowledgeGraph() {
+      const graphData = {
+        nodes: [],
+        edges: []
+      };
+
+      // 假设你在 sendMessage 中已准备好 this.answer3（子图数据）
+      const subgraph = this.answer3;
+
+      if (subgraph && subgraph.nodes && subgraph.edges) {
+        graphData.nodes = subgraph.nodes.map(node => ({
+          name: node.label,
+          id: node.id,
+          category: node.type
+        }));
+
+        graphData.edges = subgraph.edges.map(edge => ({
+          source: edge.source,
+          target: edge.target,
+          relationship: edge.relationship
+        }));
+      }
+
+      // ECharts 配置
+      const chartDom = document.getElementById('graph');
+      const myChart = echarts.init(chartDom);
+
+      const option = {
         tooltip: {},
+        animation: false,
         series: [
           {
             type: 'graph',
             layout: 'force',
-            data: this.graphData.nodes.map(node => ({
-              ...node,
-              label: {
-                show: true,
-                fontSize: 16,
-              },
-              symbolSize: 0
-            })),
-            links: this.graphData.links.map(link => ({
-              ...link,
-              lineStyle: {
-                // curveness: 0.2, // 可以设置边的弯曲程度
-                width: 2,
-                color: '#000',
-                type: 'solid',
-                // 设置箭头样式
-                arrow: true,
-              },
-            })),
-            emphasis: {
-              focus: 'adjacency',
-              lineStyle: {
-                width: 10,
-                color: '#ff0000',
-              },
-            },
-            lineStyle: {
-              color: '#000',
-              width: 2,
+            data: graphData.nodes,
+            links: graphData.edges,
+            categories: [
+              { name: 'Title', itemStyle: { color: '#ffcc00' } },
+              { name: 'Neighbor', itemStyle: { color: '#00ccff' } }
+            ],
+            force: {
+              repulsion: 100,
+              edgeLength: 50
             },
             label: {
               show: true,
-            },
-            itemStyle: {
-              borderWidth: 2,
-              borderColor: '#fff',
-            },
-            force: {
-              repulsion: 600, // 节点之间的斥力
-              edgeLength: [50, 200], // 边的长度范围
-            },
-          },
-        ],
-      });
+              position: 'inside',
+              formatter: '{b}'
+            }
+          }
+        ]
+      };
+
+      myChart.setOption(option);
     }
   }
 };
