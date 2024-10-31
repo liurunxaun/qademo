@@ -76,7 +76,7 @@ class QAndAController {
             JSONObject jsonResponse = new JSONObject(response.body());
             JSONArray answers = jsonResponse.getJSONArray("answer");
 
-            System.out.println("answer1: " + answers + '\n');
+            System.out.println("answers: " + answers + '\n');
 
             // 将答案传给前端
             return ResponseEntity.ok(answers.toString());

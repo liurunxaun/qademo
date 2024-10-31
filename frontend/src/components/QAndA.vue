@@ -24,8 +24,8 @@
 </template>
 
 <script>
-import * as d3 from 'd3';
 import axios from "axios";
+import * as echarts from 'echarts';
 
 export default {
   data() {
@@ -36,7 +36,26 @@ export default {
       answers: [],
       answer1: '',
       answer2: '',
-      answer3: ''
+      answer3: '',
+      graphData: {
+        nodes: [
+          { id: '患者', name: '患者'},
+          { id: '声音嘶哑', name: '声音嘶哑'},
+          { id: '咽喉炎', name: '咽喉炎'},
+          { id: '对喉咙进行物理检查', name: '对喉咙进行物理检查'},
+          { id: '喉镜检查', name: '喉镜检查'},
+          { id: '消炎药和类固醇', name: '消炎药和类固醇'},
+          { id: '休息嗓子，避免刺激', name: '休息嗓子，避免刺激'},
+        ],
+        links: [
+          { source: '患者', target: '声音嘶哑', label: { show: true, formatter: '一直有' } },
+          { source: '声音嘶哑', target: '咽喉炎', label: { show: true, formatter: '可能是由于' } },
+          { source: '咽喉炎', target: '对喉咙进行物理检查', label: { show: true, formatter: '需要' } },
+          { source: '咽喉炎', target: '喉镜检查', label: { show: true, formatter: '可包括' } },
+          { source: '咽喉炎', target: '消炎药和类固醇', label: { show: true, formatter: '可以用' } },
+          { source: '咽喉炎', target: '休息嗓子，避免刺激', label: { show: true, formatter: '应同时服用' } },
+        ],
+      }
     };
   },
   mounted() {
@@ -61,11 +80,21 @@ export default {
           this.answer3 = this.answers[2];
 
           // 模拟AI的回复
+          this.temp_answer = ""
+          if (this.answer1 != null) {
+            this.temp_answer += this.answer1
+          }
+          if (this.answer2 != null) {
+            this.temp_answer += "<br><br>" + this.answer2
+          }
+          if (this.answer3 != null) {
+            this.temp_answer += "<br><br>" + this.answer3
+          }
           setTimeout(() => {
-            this.messages.push({ sender: 'bot', text: this.answer1 + '<br><br>' + this.answer2 + '<br><br>' + this.answer3 });
+            this.messages.push({ sender: 'bot', text: this.temp_answer });
           }, 1000);
 
-          // 使用 D3.js 渲染知识图谱
+          // 渲染知识图谱
           this.renderKnowledgeGraph();
 
         }catch (error) {
@@ -78,83 +107,59 @@ export default {
       }
     },
 
-    renderKnowledgeGraph() {
-      const data = this.parseAnswerToGraph(this.answer3);
-
-      const svg = d3.select("#graph").append("svg")
-          .attr("width", 400)
-          .attr("height", 400);
-
-      const simulation = d3.forceSimulation(data.nodes)
-          .force("link", d3.forceLink().id(d => d.id))
-          .force("charge", d3.forceManyBody())
-          .force("center", d3.forceCenter(200, 200));
-
-      const link = svg.append("g")
-          .selectAll("line")
-          .data(data.links)
-          .enter().append("line")
-          .style("stroke", "#aaa");
-
-      const node = svg.append("g")
-          .selectAll("circle")
-          .data(data.nodes)
-          .enter().append("circle")
-          .attr("r", 10)
-          .style("fill", "#69b3a2");
-
-      simulation.on("tick", () => {
-        link.attr("x1", d => d.source.x)
-            .attr("y1", d => d.source.y)
-            .attr("x2", d => d.target.x)
-            .attr("y2", d => d.target.y);
-
-        node.attr("cx", d => d.x)
-            .attr("cy", d => d.y);
+    renderKnowledgeGraph (){
+      this.chartInstance = echarts.init(document.getElementById('graph'));
+      this.chartInstance.setOption({
+        tooltip: {},
+        series: [
+          {
+            type: 'graph',
+            layout: 'force',
+            data: this.graphData.nodes.map(node => ({
+              ...node,
+              label: {
+                show: true,
+                fontSize: 16,
+              },
+              symbolSize: 0
+            })),
+            links: this.graphData.links.map(link => ({
+              ...link,
+              lineStyle: {
+                // curveness: 0.2, // 可以设置边的弯曲程度
+                width: 2,
+                color: '#000',
+                type: 'solid',
+                // 设置箭头样式
+                arrow: true,
+              },
+            })),
+            emphasis: {
+              focus: 'adjacency',
+              lineStyle: {
+                width: 10,
+                color: '#ff0000',
+              },
+            },
+            lineStyle: {
+              color: '#000',
+              width: 2,
+            },
+            label: {
+              show: true,
+            },
+            itemStyle: {
+              borderWidth: 2,
+              borderColor: '#fff',
+            },
+            force: {
+              repulsion: 600, // 节点之间的斥力
+              edgeLength: [50, 200], // 边的长度范围
+            },
+          },
+        ],
       });
-    },
-
-    parseAnswerToGraph() {
-      // 假设您将 answer3 解析为树形结构
-      const nodes = [];
-      const links = [];
-
-      const addNode = (parent, child) => {
-        const parentId = parent.id || parent;
-        const childId = child.id || child;
-
-        if (!nodes.some(n => n.id === parentId)) {
-          nodes.push({ id: parentId });
-        }
-        if (!nodes.some(n => n.id === childId)) {
-          nodes.push({ id: childId });
-        }
-        links.push({ source: parentId, target: childId });
-      };
-
-      // 模拟解析逻辑（需要根据具体格式调整）
-      // 这里只是一个示例，实际解析需要根据您的 answer3 内容
-      const treeData = {
-        "Patient": ["has been experiencing", "could be caused by"],
-        "has been experiencing": ["hoarse voice"],
-        "could be caused by": ["laryngitis"],
-        "laryngitis": ["requires", "can be treated with", "should be accompanied by"],
-        "requires": ["physical examination of the throat"],
-        "can be treated with": ["anti-inflammatory drugs and Steroids"],
-        "should be accompanied by": ["resting the voice and avoiding irritants"],
-        "physical examination of the throat": ["may include"],
-        "may include": ["laryngoscopy"]
-      };
-
-      for (const [parent, children] of Object.entries(treeData)) {
-        for (const child of children) {
-          addNode(parent, child);
-        }
-      }
-
-      return { nodes, links };
     }
-
   }
 };
 </script>
@@ -233,9 +238,8 @@ export default {
   border-radius: 4px;
   cursor: pointer;
 }
-
 #graph {
   width: 100%;
-  height: 400px;
+  height: 80vh;
 }
 </style>
