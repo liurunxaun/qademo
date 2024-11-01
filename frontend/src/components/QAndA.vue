@@ -18,7 +18,7 @@
     <!-- 右侧：知识图谱展示 -->
     <div class="knowledge-graph">
       <h2>Knowledge Graph</h2>
-      <div id="graph"></div> <!-- 用于渲染知识图谱的区域 -->
+      <div ref="chart" id="graph"></div> <!-- 用于渲染知识图谱的区域 -->
     </div>
   </div>
 </template>
@@ -36,11 +36,8 @@ export default {
       answers: [],
       answer1: '',
       answer2: [],
-      answer3: {},
+      answer3: {}
     };
-  },
-  mounted() {
-    window.addEventListener('resize', this.resizeChart);
   },
   methods: {
     async sendMessage() {
@@ -63,63 +60,77 @@ export default {
 
           // 模拟AI的回复
           this.temp_answer = ""
+
           if (this.answer1 != null) {
+            // TODO:考虑是不是markdown
             this.temp_answer += this.answer1
           }
-          if (this.answer2 != null) {
+
+          if (this.answer2.length != 0) {
+            // TODO:后面还需要处理answer2，他是[[实体：论文],[],...]格式的，考虑怎么展示给用户
             this.temp_answer += "<br><br>" + this.answer2
+          } else {
+            this.temp_answer += "<br><br>" + "没有匹配到相关论文"
           }
-          if (this.answer3 != null) {
-            // 渲染知识图谱
-            this.renderKnowledgeGraph();
-          }
+
           setTimeout(() => {
             this.messages.push({ sender: 'bot', text: this.temp_answer });
           }, 1000);
+
+          if (this.answer3.length != 0) {
+            console.log('Actual Graph Data:', this.answer3);
+            // 渲染知识图谱
+            this.renderGraph(this.answer3);
+          }
+
         }catch (error) {
           console.error("Error fetching answer:", error);
           // 模拟AI的回复
           setTimeout(() => {
-            this.messages.push({ sender: 'bot', text: '人家没听明白，请换个说法吧'});
+            this.messages.push({ sender: 'bot', text: error});
           }, 1000);
         }
       }
     },
 
-    resizeChart() {
-      const chartDom = document.getElementById('graph');
-      const myChart = echarts.getInstanceByDom(chartDom);
-      if (myChart) {
-        myChart.resize();
-      }
-    },
+    renderGraph(graphs) {
+      const graphData = graphs[0]; // 假设只可视化第一个子图
 
-    renderKnowledgeGraph() {
-      const graphData = {
-        nodes: [],
-        edges: []
-      };
+      const graphContainer = this.$refs.chart;
 
-      // 假设你在 sendMessage 中已准备好 this.answer3（子图数据）
-      const subgraph = this.answer3;
-
-      if (subgraph && subgraph.nodes && subgraph.edges) {
-        graphData.nodes = subgraph.nodes.map(node => ({
-          name: node.label,
-          id: node.id,
-          category: node.type
-        }));
-
-        graphData.edges = subgraph.edges.map(edge => ({
-          source: edge.source,
-          target: edge.target,
-          relationship: edge.relationship
-        }));
+      // 检查 graphContainer 是否有效
+      if (!graphContainer) {
+        console.error('Graph container is not found');
+        return;
       }
 
-      // ECharts 配置
-      const chartDom = document.getElementById('graph');
-      const myChart = echarts.init(chartDom);
+      // 确保 graphData 有效
+      if (!graphData || !graphData.nodes || !graphData.edges) {
+        console.error('Invalid graph data:', graphData);
+        return;
+      }
+
+      const seenIds = new Set();
+      const uniqueNodes = [];
+
+      // 过滤重复节点
+      graphData.nodes.forEach(node => {
+        if (!seenIds.has(node.id)) {
+          seenIds.add(node.id);
+          uniqueNodes.push({
+            id: node.id,
+            name: node.label,
+            category: node.type === '标题' ? 0 : 1
+          });
+        } else {
+          console.warn(`Duplicate node found: ${node.id}`);
+        }
+      });
+
+      const edges = graphData.edges.map(edge => ({
+        source: edge.source,
+        target: edge.target
+      }));
 
       const option = {
         tooltip: {},
@@ -127,28 +138,23 @@ export default {
         series: [
           {
             type: 'graph',
-            layout: 'force',
-            data: graphData.nodes,
-            links: graphData.edges,
-            categories: [
-              { name: 'Title', itemStyle: { color: '#ffcc00' } },
-              { name: 'Neighbor', itemStyle: { color: '#00ccff' } }
-            ],
-            force: {
-              repulsion: 100,
-              edgeLength: 50
-            },
+            layout: 'circular',
+            data: uniqueNodes,
+            links: edges,
+            categories: [{ name: '标题' }, { name: 'Neighbor' }],
+            roam: true,
             label: {
-              show: true,
-              position: 'inside',
-              formatter: '{b}'
+              show: true
             }
           }
         ]
       };
 
-      myChart.setOption(option);
+      const chart = echarts.init(graphContainer);
+      chart.setOption(option);
     }
+
+
   }
 };
 </script>
@@ -170,7 +176,9 @@ export default {
 .knowledge-graph {
   width: 40%;
   padding: 10px;
+  min-height: 80vh; /* 确保有足够的空间 */
 }
+
 
 .chat-header {
   background-color: #007bff;
