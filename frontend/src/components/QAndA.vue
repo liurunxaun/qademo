@@ -7,7 +7,8 @@
       </div>
       <div class="chat-body">
         <div v-for="(message, index) in messages" :key="index" class="message">
-          <div :class="message.sender === 'user' ? 'user-message' : 'bot-message'" v-html="message.text"></div></div>
+          <div :class="message.sender === 'user' ? 'user-message' : 'bot-message'" v-html="message.text"></div>
+        </div>
       </div>
       <div class="chat-footer">
         <input v-model="userInput" @keyup.enter="sendMessage" placeholder="请输入您的问题..." />
@@ -26,6 +27,7 @@
 <script>
 import axios from "axios";
 import * as echarts from 'echarts';
+import { marked } from 'marked';
 
 export default {
   data() {
@@ -62,13 +64,21 @@ export default {
           this.temp_answer = ""
 
           if (this.answer1 != null) {
-            // TODO:考虑是不是markdown
-            this.temp_answer += this.answer1
+            this.temp_answer += marked(this.answer1)
           }
 
           if (this.answer2.length != 0) {
             // TODO:后面还需要处理answer2，他是[[实体：论文],[],...]格式的，考虑怎么展示给用户
-            this.temp_answer += "<br><br>" + this.answer2
+            this.temp_answer += "<br><div class='answer2-message'>";
+            this.answer2.forEach(item => {
+              this.temp_answer += "<b>" + "问题关键词：" + "</b>" + "<br>"
+              this.temp_answer += item[0] + "<br>"
+              this.temp_answer += "<b>" + "知识图谱匹配实体：" + "</b>" + "<br>"
+              this.temp_answer += item[1] + "<br>"
+              this.temp_answer += "<b>" + "参考文献：" + "</b>" + "<br>"
+              this.temp_answer += item[2] + "<br><br>"
+            })
+            this.temp_answer += "</div>";
           } else {
             this.temp_answer += "<br><br>" + "没有匹配到相关论文"
           }
@@ -214,6 +224,10 @@ export default {
   padding: 10px; /* 内边距 */
   margin-right: auto; /* 自动右边距使消息靠左 */
   max-width: 75%; /* 限制最大宽度 */
+}
+
+.answer2-message {
+  line-height: 2; /* 设置answer2的行间距 */
 }
 
 .chat-footer {
