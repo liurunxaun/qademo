@@ -25,7 +25,6 @@
 </template>
 
 <script>
-import axios from "axios";
 import * as echarts from 'echarts';
 import { marked } from 'marked';
 
@@ -38,7 +37,8 @@ export default {
       answers: [],
       answer1: '',
       answer2: [],
-      answer3: {}
+      answer3: {},
+      isLoading: false
     };
   },
   methods: {
@@ -46,65 +46,128 @@ export default {
       if (this.userInput.trim()) {
         this.question = this.userInput;
         this.userInput = '';
+
         // 用户消息
         this.messages.push({ sender: 'user', text: this.question });
 
+        // 添加“正在分析...”的消息
+        this.messages.push({ sender: 'bot', text: '正在分析...' });
+
+        this.isLoading = true;
+
         try {
-          const response = await axios.get("http://localhost:8080/api/qa", {
-            params: { question : this.question }
-          });
+          // 使用 EventSource 来处理流式数据
+          const eventSource = new EventSource(`http://10.43.127.251:8080/api/qa?question=${encodeURIComponent(this.question)}`);
 
-          this.answers = response.data;
-          console.log(this.answers)
-          this.answer1 = this.answers[0];
-          this.answer2 = this.answers[1];
-          this.answer3 = this.answers[2];
+          // 临时存储 AI 的回答
+          this.temp_answer = "";
 
-          // 模拟AI的回复
-          this.temp_answer = ""
+          eventSource.onmessage = (event) => {
+            this.isLoading = false;
 
-          if (this.answer1 != null) {
-            this.temp_answer += marked(this.answer1)
-          }
+            const chunk = event.data;
 
-          if (this.answer2.length != 0) {
-            // TODO:后面还需要处理answer2，他是[[实体：论文],[],...]格式的，考虑怎么展示给用户
-            this.temp_answer += "<br><div class='answer2-message'>";
-            this.answer2.forEach(item => {
-              this.temp_answer += "<b>" + "问题关键词：" + "</b>" + "<br>"
-              this.temp_answer += item[0] + "<br>"
-              this.temp_answer += "<b>" + "知识图谱匹配实体：" + "</b>" + "<br>"
-              this.temp_answer += item[1] + "<br>"
-              this.temp_answer += "<b>" + "参考文献：" + "</b>" + "<br>"
-              this.temp_answer += item[2] + "<br><br>"
-            })
-            this.temp_answer += "</div>";
-          } else {
-            this.temp_answer += "<br><br>" + "没有匹配到相关论文"
-          }
+            if (chunk.includes("answer1_start")) {
+              this.status = 1;
+            } else if (chunk.includes("answer2_start")) {
+              this.status = 2;
+              this.answer2 = chunk;
+              this.process_answer2();
+            } else if (chunk.includes("answer3_start")) {
+              this.status = 3;
+              this.answer3 = chunk;
+              this.renderGraph(this.answer3);
+            } else {
+              if (this.status === 1) {
+                this.temp_answer += marked(chunk);
+              }
+            }
+          };
 
-          setTimeout(() => {
-            this.messages.push({ sender: 'bot', text: this.temp_answer });
-          }, 1000);
+          eventSource.onerror = (error) => {
+            console.error("Error fetching answer:", error);
+            this.messages.pop(); // 删除“正在分析...”消息
+            this.messages.push({ sender: 'bot', text: '发生错误，请稍后重试！' });
+            eventSource.close();
+            this.isLoading = false;
+          };
 
-          if (this.answer3.length != 0) {
-            console.log('Actual Graph Data:', this.answer3);
-            // 渲染知识图谱
-            this.renderGraph(this.answer3);
-          }
+          eventSource.onopen = () => {
+            console.log("连接成功，正在接收数据...");
+          };
 
-        }catch (error) {
-          console.error("Error fetching answer:", error);
-          // 模拟AI的回复
-          setTimeout(() => {
-            this.messages.push({ sender: 'bot', text: error});
-          }, 1000);
+        } catch (error) {
+          console.error("Error initializing EventSource:", error);
+          this.messages.pop(); // 删除“正在分析...”消息
+          this.messages.push({ sender: 'bot', text: '无法连接到服务器，请稍后重试！' });
+          this.isLoading = false;
         }
       }
     },
 
+
+    process_answer2(){
+      this.temp_answer += "<div class='answer2-message'>";
+      this.temp_answer += "<b>" + "参考文献：" + "</b>" + "<br>"
+
+      this.title_list = []
+
+      for(this.item of this.answer2){
+        this.flag = 0
+        for(this.title of this.title_list){
+          if(this.item[2] == this.title){
+            this.flag = 1
+            break
+          }
+        }
+        if(this.flag == 0){
+          this.title_list.push(this.item[2])
+        }
+      }
+
+      this.count = 1
+      this.title_list.forEach(item=>{
+        this.temp_answer += `${this.count}. ` + item + "<br>"
+        this.count += 1
+      })
+
+      this.temp_answer += "</div>";
+    },
+
+    // process_answer2(){
+    //   this.temp_answer += "<br><div class='answer2-message'>";
+    //   this.entity_list = []
+    //
+    //   for(this.item of this.answer2){
+    //     this.flag = 0
+    //     for(this.entity of this.entity_list){
+    //       if (this.item[0] == this.entity[0]) {
+    //         this.entity[1] += this.item[1] + "<br>"
+    //         this.entity[2] += this.item[2] + "<br>"
+    //         this.flag = 1
+    //         break
+    //       }
+    //     }
+    //     if(this.flag == 0) {
+    //       this.entity_list.push([this.item[0], this.item[1], this.item[2]+"<br>"])
+    //     }
+    //   }
+    //
+    //   this.entity_list.forEach(items => {
+    //     this.temp_answer += "<b>" + "问题关键词：" + "</b>" + "<br>"
+    //     this.temp_answer += items[0] + "<br>"
+    //     this.temp_answer += "<b>" + "知识图谱匹配实体：" + "</b>" + "<br>"
+    //     this.temp_answer += items[1] + "<br>"
+    //     this.temp_answer += "<b>" + "参考文献：" + "</b>" + "<br>"
+    //     this.temp_answer += items[2] + "<br><br>"
+    //   })
+    //
+    //   this.temp_answer += "</div>";
+    // },
+
     renderGraph(graphs) {
       const graphData = graphs[0]; // 假设只可视化第一个子图
+      console.log(graphData)
 
       const graphContainer = this.$refs.chart;
 
@@ -127,19 +190,37 @@ export default {
       graphData.nodes.forEach(node => {
         if (!seenIds.has(node.id)) {
           seenIds.add(node.id);
-          uniqueNodes.push({
-            id: node.id,
-            name: node.label,
-            category: node.type === '标题' ? 0 : 1
-          });
-        } else {
-          console.warn(`Duplicate node found: ${node.id}`);
+          if (node.type == '标题') {
+            uniqueNodes.push({
+              id: node.id,
+              name: node.label,
+              value: node.type,
+              draggable: true,
+              label: {
+                show: true,
+                color: '#2ecc71',  // 设置字体颜色
+                fontSize: 16,      // 设置字体大小
+                fontFamily: 'Arial'  // 设置字体类型
+              }
+            });
+          } else {
+            uniqueNodes.push({
+              id: node.id,
+              name: node.type,
+              value: node.label,
+              draggable: true
+            });
+          }
         }
       });
 
       const edges = graphData.edges.map(edge => ({
         source: edge.source,
-        target: edge.target
+        target: edge.target,
+        label: {
+          show: false,
+          formatter: edge.relationship
+        }
       }));
 
       const option = {
@@ -148,10 +229,12 @@ export default {
         series: [
           {
             type: 'graph',
-            layout: 'circular',
+            layout: 'force',
+            force: {
+              repulsion: 500
+            },
             data: uniqueNodes,
             links: edges,
-            categories: [{ name: '标题' }, { name: 'Neighbor' }],
             roam: true,
             label: {
               show: true
@@ -227,7 +310,7 @@ export default {
 }
 
 .answer2-message {
-  line-height: 2; /* 设置answer2的行间距 */
+  line-height: 1.8; /* 设置answer2的行间距 */
 }
 
 .chat-footer {
