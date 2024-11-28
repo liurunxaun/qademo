@@ -25,6 +25,7 @@
 </template>
 
 <script>
+import axios from "axios";
 import * as echarts from 'echarts';
 import { marked } from 'marked';
 
@@ -46,7 +47,6 @@ export default {
       if (this.userInput.trim()) {
         this.question = this.userInput;
         this.userInput = '';
-
         // 用户消息
         this.messages.push({ sender: 'user', text: this.question });
 
@@ -56,54 +56,52 @@ export default {
         this.isLoading = true;
 
         try {
-          // 使用 EventSource 来处理流式数据
-          const eventSource = new EventSource(`http://10.43.127.251:8080/api/qa?question=${encodeURIComponent(this.question)}`);
+          const response = await axios.get("http://10.43.121.31:8080/api/qa", {
+            params: { question : this.question }
+          });
 
-          // 临时存储 AI 的回答
-          this.temp_answer = "";
+          this.answers = response.data;
+          console.log(this.answers)
+          this.answer1 = this.answers[0];
+          this.answer2 = this.answers[1];
+          this.answer3 = this.answers[2];
 
-          eventSource.onmessage = (event) => {
-            this.isLoading = false;
+          // 模拟AI的回复
+          this.temp_answer = ""
 
-            const chunk = event.data;
-
-            if (chunk.includes("answer1_start")) {
-              this.status = 1;
-            } else if (chunk.includes("answer2_start")) {
-              this.status = 2;
-              this.answer2 = chunk;
-              this.process_answer2();
-            } else if (chunk.includes("answer3_start")) {
-              this.status = 3;
-              this.answer3 = chunk;
-              this.renderGraph(this.answer3);
-            } else {
-              if (this.status === 1) {
-                this.temp_answer += marked(chunk);
-              }
-            }
-          };
-
-          eventSource.onerror = (error) => {
-            console.error("Error fetching answer:", error);
-            this.messages.pop(); // 删除“正在分析...”消息
-            this.messages.push({ sender: 'bot', text: '发生错误，请稍后重试！' });
-            eventSource.close();
-            this.isLoading = false;
-          };
-
-          eventSource.onopen = () => {
-            console.log("连接成功，正在接收数据...");
-          };
-
-        } catch (error) {
-          console.error("Error initializing EventSource:", error);
+          this.isLoading = false;
           this.messages.pop(); // 删除“正在分析...”消息
-          this.messages.push({ sender: 'bot', text: '无法连接到服务器，请稍后重试！' });
+
+          if (this.answer1 != null) {
+            this.temp_answer += marked(this.answer1)
+          }
+
+          if (this.answer2.length != 0) {
+            this.process_answer2()
+          }
+
+          setTimeout(() => {
+            this.messages.push({ sender: 'bot', text: this.temp_answer });
+          }, 1000);
+
+          if (this.answer3.length != 0) {
+            console.log('Actual Graph Data:', this.answer3);
+            // 渲染知识图谱
+            this.renderGraph(this.answer3);
+          }
+
+        }catch (error) {
+          console.error("Error fetching answer:", error);
+          this.messages.pop(); // 删除“正在分析...”消息
+          // 模拟AI的回复
+          setTimeout(() => {
+            this.messages.push({ sender: 'bot', text: error});
+          }, 1000);
           this.isLoading = false;
         }
       }
     },
+
 
 
     process_answer2(){

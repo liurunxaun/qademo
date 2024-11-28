@@ -4,20 +4,20 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
-import org.springframework.web.client.RestTemplate;
 import org.springframework.web.servlet.config.annotation.CorsRegistry;
 import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 import org.springframework.context.annotation.Bean;
-import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
-import org.springframework.http.HttpHeaders;
-import org.springframework.http.HttpEntity;
-import org.springframework.http.MediaType;
-import org.springframework.http.ResponseEntity;
 
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
 
 
 @SpringBootApplication
@@ -35,11 +35,6 @@ public class App {
             }
         };
     }
-
-    @Bean
-    public RestTemplate restTemplate() {
-        return new RestTemplate();
-    }
 }
 
 @RestController
@@ -54,48 +49,40 @@ class HelloController {
 @RestController
 @RequestMapping("/api")
 class QAndAController {
-    private final RestTemplate restTemplate;
-
-    public QAndAController(RestTemplate restTemplate) {
-        this.restTemplate = restTemplate;
-    }
-
     @GetMapping("/qa")
-    public SseEmitter QAndA(@RequestParam String question) {
-        SseEmitter emitter = new SseEmitter();
-
+    public ResponseEntity<String> QAndA(@RequestParam String question){
         try {
-            // 构建 JSON 数据
+            System.out.println("question: " + question);
+            // 先从前端接收数据，准备发送的数据
             String jsonData = "{\"question\": \"" + question.replace("\"", "\\\"") + "\"}";
-            System.out.println(jsonData);
 
-            // 设置请求头 Content-Type 为 application/json
-            HttpHeaders headers = new HttpHeaders();
-            headers.setContentType(MediaType.APPLICATION_JSON);
 
-            // 将 JSON 数据和头部一起放入 HttpEntity 中
-            HttpEntity<String> entity = new HttpEntity<>(jsonData, headers);
+            // 再把问题传给python
 
-            // 发送 POST 请求
-            String pythonUrl = "http://10.43.108.62:5002/process-data";
-            ResponseEntity<String> responseEntity = restTemplate.postForEntity(pythonUrl, entity, String.class);
-            String response = responseEntity.getBody();
-            System.out.println(response);
+            // 创建 HttpClient
+            HttpClient client = HttpClient.newHttpClient();
 
-            // 假设 Python 后端返回的 JSON 格式是正确的
-            JSONObject jsonResponse = new JSONObject(response);
-            // 获取 answer 字段，支持字符串或数组类型
-            Object answer = jsonResponse.get("answer");
-            System.out.println(answer);
+            // 创建 POST 请求
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create("http://10.43.108.62:5002/process-data"))
+                    .header("Content-Type", "application/json")
+                    .POST(HttpRequest.BodyPublishers.ofString(jsonData))
+                    .build();
 
-            emitter.send(answer);
+            // 发送请求并接收响应
+            HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
 
-            emitter.complete();
+            // 解析并处理 Python 返回的结果
+            JSONObject jsonResponse = new JSONObject(response.body());
+            JSONArray answers = jsonResponse.getJSONArray("answer");
+
+            System.out.println("answers: " + answers + '\n');
+
+            // 将答案传给前端
+            return ResponseEntity.ok(answers.toString());
         } catch (Exception e) {
-            emitter.completeWithError(e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body("Error occurred: " + e.getMessage());
         }
-
-        return emitter;
     }
 }
 
