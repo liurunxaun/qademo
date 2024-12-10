@@ -39,70 +39,111 @@ export default {
       answer1: '',
       answer2: [],
       answer3: {},
-      isLoading: false
     };
   },
+
+  mounted() {
+    this.setupWebSocket();
+  },
+
   methods: {
     async sendMessage() {
       if (this.userInput.trim()) {
         this.question = this.userInput;
         this.userInput = '';
+
+        // 创建一个新消息对象，临时用于合并流式数据
+        const messageId = Date.now(); // 使用时间戳作为唯一ID
+        const newMessage = { id: messageId, sender: 'bot', text: '' };
+
         // 用户消息
-        this.messages.push({ sender: 'user', text: this.question });
-
-        // 添加“正在分析...”的消息
-        this.messages.push({ sender: 'bot', text: '正在分析...' });
-
-        this.isLoading = true;
+        this.messages.push({ sender: 'user', text: this.question })
+        this.messages.push(newMessage); // 添加临时空的 bot 消息框
 
         try {
-          const response = await axios.get("http://10.43.121.31:8080/api/qa", {
-            params: { question : this.question }
+          const response = await axios.post("http://localhost:8080/api/question", {
+            question: this.question,
           });
-
-          this.answers = response.data;
-          console.log(this.answers)
-          this.answer1 = this.answers[0];
-          this.answer2 = this.answers[1];
-          this.answer3 = this.answers[2];
-
-          // 模拟AI的回复
-          this.temp_answer = ""
-
-          this.isLoading = false;
-          this.messages.pop(); // 删除“正在分析...”消息
-
-          if (this.answer1 != null) {
-            this.temp_answer += marked(this.answer1)
-          }
-
-          if (this.answer2.length != 0) {
-            this.process_answer2()
-          }
-
-          setTimeout(() => {
-            this.messages.push({ sender: 'bot', text: this.temp_answer });
-          }, 1000);
-
-          if (this.answer3.length != 0) {
-            console.log('Actual Graph Data:', this.answer3);
-            // 渲染知识图谱
-            this.renderGraph(this.answer3);
-          }
-
+          console.log("Request sent to Java:", response.data);
         }catch (error) {
           console.error("Error fetching answer:", error);
-          this.messages.pop(); // 删除“正在分析...”消息
-          // 模拟AI的回复
-          setTimeout(() => {
-            this.messages.push({ sender: 'bot', text: error});
-          }, 1000);
-          this.isLoading = false;
+          this.updateMessageContent(messageId, "Error: " + error.message);
         }
       }
     },
 
+    updateMessageContent(messageId, newContent) {
+      const targetMessage = this.messages.find(msg => msg.id === messageId);
+      if (targetMessage) {
+        targetMessage.text += newContent; // 追加新内容
+      }
+    },
 
+    setupWebSocket() {
+      const socket = new WebSocket("ws://localhost:8080/ws");
+
+      socket.onmessage = (event) => {
+        this.enevnt_data = event.data
+        console.log("Received from Java:", event.data);
+
+        // 获取最后一个 bot 消息框的 ID
+        const lastMessage = this.messages.find(msg => msg.sender === 'bot');
+
+        if (lastMessage) {
+          try {
+            if (this.enevnt_data.includes("answer1_start")) {
+              this.status = 1;
+            }
+            else if (this.enevnt_data.includes("answer2_start")) {
+              this.status = 2;
+            }
+            else if (this.enevnt_data.includes("answer3_start")) {
+              this.status = 3;
+            }
+            else {
+              if (this.status == 1) {
+                lastMessage.text += marked(this.enevnt_data);
+              }
+              else if (this.status == 2) {
+                this.answer2 = this.enevnt_data;
+                if (this.answer2.length != 0) {
+                  this.process_answer2()
+                }
+                setTimeout(() => {
+                  this.messages.push({ sender: 'bot', text: this.temp_answer });
+                }, 1000);
+              }
+              else if (this.status == 3) {
+                this.answer3 = this.enevnt_data;
+                if (this.answer3.length != 0) {
+                  console.log('Actual Graph Data:', this.answer3);
+                  // 渲染知识图谱
+                  this.renderGraph(this.answer3);
+                }
+              }
+            }
+          }catch (error) {
+            console.error("Error fetching answer:", error);
+            // 模拟AI的回复
+            setTimeout(() => {
+              this.messages.push({ sender: 'bot', text: error});
+            }, 1000);
+          }
+        }
+        else {
+          // 如果没有现有的消息框，创建一个新的（备用）
+          this.messages.push({ sender: 'bot', text: `<div>${marked(this.eventData)}</div>` });
+        }
+      };
+
+      socket.onopen = () => {
+        console.log("WebSocket connected to Java backend");
+      };
+
+      socket.onclose = () => {
+        console.log("WebSocket connection closed");
+      };
+    },
 
     process_answer2(){
       this.temp_answer += "<div class='answer2-message'>";
