@@ -16,7 +16,7 @@ public class PythonWebSocketService {
 
     public PythonWebSocketService() {
         try {
-            pythonClient = new WebSocketClient(new URI("ws://localhost:8765")) {
+            pythonClient = new WebSocketClient(new URI("ws://10.43.108.62:8765")) {
                 @Override
                 public void onOpen(ServerHandshake handshakedata) {
                     System.out.println("Connected to Python server");

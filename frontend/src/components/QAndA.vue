@@ -39,11 +39,8 @@ export default {
       answer1: '',
       answer2: [],
       answer3: {},
+      socket: null
     };
-  },
-
-  mounted() {
-    this.setupWebSocket();
   },
 
   methods: {
@@ -52,102 +49,96 @@ export default {
         this.question = this.userInput;
         this.userInput = '';
 
-        // 创建一个新消息对象，临时用于合并流式数据
-        const messageId = Date.now(); // 使用时间戳作为唯一ID
-        const newMessage = { id: messageId, sender: 'bot', text: '' };
-
         // 用户消息
         this.messages.push({ sender: 'user', text: this.question })
-        this.messages.push(newMessage); // 添加临时空的 bot 消息框
+
+        // 用于接收数据
+        this.socket = new WebSocket("ws://10.43.121.31:8080/ws");
+
+        // 为新的 bot 消息框占位
+        const messageId = Date.now(); // 使用时间戳作为唯一ID
+        this.messages.push({ id: messageId, sender: 'bot', text: '' });
 
         try {
-          const response = await axios.post("http://localhost:8080/api/question", {
+          const response = await axios.post("http://10.43.121.31:8080/api/question", {
             question: this.question,
           });
           console.log("Request sent to Java:", response.data);
-        }catch (error) {
-          console.error("Error fetching answer:", error);
-          this.updateMessageContent(messageId, "Error: " + error.message);
-        }
-      }
-    },
 
-    updateMessageContent(messageId, newContent) {
-      const targetMessage = this.messages.find(msg => msg.id === messageId);
-      if (targetMessage) {
-        targetMessage.text += newContent; // 追加新内容
-      }
-    },
+          this.socket.onmessage = (event) => {
+            this.event_data = JSON.parse(event.data)
+            console.log("Received from Java:", event.data);
 
-    setupWebSocket() {
-      const socket = new WebSocket("ws://localhost:8080/ws");
+            // 使用当前的 messageId 追加内容
+            const targetMessage = this.messages.find(msg => msg.id === messageId);
 
-      socket.onmessage = (event) => {
-        this.enevnt_data = event.data
-        console.log("Received from Java:", event.data);
-
-        // 获取最后一个 bot 消息框的 ID
-        const lastMessage = this.messages.find(msg => msg.sender === 'bot');
-
-        if (lastMessage) {
-          try {
-            if (this.enevnt_data.includes("answer1_start")) {
-              this.status = 1;
-            }
-            else if (this.enevnt_data.includes("answer2_start")) {
-              this.status = 2;
-            }
-            else if (this.enevnt_data.includes("answer3_start")) {
-              this.status = 3;
-            }
-            else {
-              if (this.status == 1) {
-                lastMessage.text += marked(this.enevnt_data);
-              }
-              else if (this.status == 2) {
-                this.answer2 = this.enevnt_data;
-                if (this.answer2.length != 0) {
-                  this.process_answer2()
+            if (targetMessage) {
+              try {
+                switch (this.event_data.type) {
+                  case "answer0":
+                    targetMessage.text += this.event_data.data;
+                    break;
+                  case "answer1":
+                    targetMessage.text += marked(this.event_data.data);
+                    break;
+                  case "answer2" :
+                    this.answer2 = this.event_data.data;
+                    if (this.answer2.length != 0) {
+                      this.process_answer2(targetMessage)
+                    }
+                    break;
+                  case "answer3":
+                    this.answer3 = this.event_data.data;
+                    if (this.answer3.length != 0) {
+                      console.log('Actual Graph Data:', this.answer3);
+                      // 渲染知识图谱
+                      this.renderGraph(this.answer3);
+                    }
+                    break;
+                  case "answer4":
+                    this.answer4 = this.event_data.data;
+                    if (this.answer4 != "") {
+                      targetMessage.text += "<b>" + "从问题中提取的实体包括：" + "</b>" + "<br>"
+                      targetMessage.text += this.event_data.data;
+                    }
+                    break;
                 }
+
+              }catch (error) {
+                console.error("Error fetching answer:", error);
+                // 模拟AI的回复
                 setTimeout(() => {
-                  this.messages.push({ sender: 'bot', text: this.temp_answer });
+                  this.messages.push({ sender: 'bot', text: error});
                 }, 1000);
               }
-              else if (this.status == 3) {
-                this.answer3 = this.enevnt_data;
-                if (this.answer3.length != 0) {
-                  console.log('Actual Graph Data:', this.answer3);
-                  // 渲染知识图谱
-                  this.renderGraph(this.answer3);
-                }
-              }
             }
-          }catch (error) {
-            console.error("Error fetching answer:", error);
-            // 模拟AI的回复
-            setTimeout(() => {
-              this.messages.push({ sender: 'bot', text: error});
-            }, 1000);
+            else {
+              // 如果没有现有的消息框，创建一个新的（备用）
+              this.messages.push({ sender: 'bot', text: `<div>${this.event_data.data}</div>` });
+            }
+          };
+
+          this.socket.onopen = () => {
+            console.log("WebSocket connected to Java backend");
+          };
+
+          this.socket.onclose = () => {
+            console.log("WebSocket connection closed");
+          };
+
+        }catch (error) {
+          console.error("Error fetching answer:", error);
+          const targetMessage = this.messages.find(msg => msg.id === messageId);
+          if (targetMessage) {
+            targetMessage.text += error.message;
           }
         }
-        else {
-          // 如果没有现有的消息框，创建一个新的（备用）
-          this.messages.push({ sender: 'bot', text: `<div>${marked(this.eventData)}</div>` });
-        }
-      };
-
-      socket.onopen = () => {
-        console.log("WebSocket connected to Java backend");
-      };
-
-      socket.onclose = () => {
-        console.log("WebSocket connection closed");
-      };
+      }
     },
 
-    process_answer2(){
-      this.temp_answer += "<div class='answer2-message'>";
-      this.temp_answer += "<b>" + "参考文献：" + "</b>" + "<br>"
+    process_answer2(lastMessage){
+      lastMessage.text += "<div class='answer2-message'>";
+      lastMessage.text += "<b>" + "参考文献：" + "</b>" + "<br>"
 
       this.title_list = []
 
@@ -166,11 +157,11 @@ export default {
 
       this.count = 1
       this.title_list.forEach(item=>{
-        this.temp_answer += `${this.count}. ` + item + "<br>"
+        lastMessage.text += `${this.count}. ` + item + "<br>"
         this.count += 1
       })
 
-      this.temp_answer += "</div>";
+      lastMessage.text += "</div> <br>";
     },
 
     // process_answer2(){
