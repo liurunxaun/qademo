@@ -43,122 +43,108 @@ export default {
     };
   },
 
-  created() {
-    // 页面加载时创建独立的 WebSocket 连接
-    this.initWebSocket();
-  },
-
-  beforeUnmount() {
-    if (this.socket) {
-      this.socket.close();
-    }
-  },
-
   methods: {
-    initWebSocket() {
-      this.socket = new WebSocket("ws://10.43.121.31:8080/ws");
-      this.socket.onmessage = (event) => {
-        const eventData = JSON.parse(event.data);
-        this.handleServerMessage(eventData);
-      };
-
-      this.socket.onopen = () => {
-        console.log("WebSocket connected");
-      };
-
-      this.socket.onclose = () => {
-        console.log("WebSocket connection closed");
-      };
-
-      this.socket.onerror = (error) => {
-        console.error("WebSocket error:", error);
-      };
-    },
-
-    handleServerMessage(eventData) {
-      // 根据服务端返回数据类型处理
-      console.log("Received from server:", eventData);
-      // ...业务逻辑处理...
-      this.temp_answer = ""
-
-      try {
-        switch (eventData.type) {
-          case "answer0":
-            this.temp_answer += eventData.data;
-            this.messages.push({sender: 'bot', text: this.temp_answer});
-            break;
-          case "answer1":
-            this.temp_answer += marked(eventData.data);
-            this.messages.push({sender: 'bot', text: this.temp_answer});
-            break;
-          case "answer2" :
-            this.answer2 = eventData.data;
-            if (this.answer2.length != 0) {
-              this.process_answer2()
-            }
-            this.messages.push({sender: 'bot', text: this.temp_answer});
-            break;
-          case "answer3":
-            this.answer3 = eventData.data;
-            if (this.answer3.length != 0) {
-              console.log('Actual Graph Data:', this.answer3);
-              // 渲染知识图谱
-              this.renderGraph(this.answer3);
-            }
-            break;
-        }
-
-      } catch (error) {
-        console.error("Error fetching answer:", error);
-        this.messages.push({sender: 'bot', text: error.message});
-      }
-    },
-
     async sendMessage() {
       if (this.userInput.trim()) {
         this.question = this.userInput;
         this.userInput = '';
 
         // 用户消息
-        this.messages.push({ sender: 'user', text: this.question });
+        this.messages.push({ sender: 'user', text: this.question })
+
+        // 用于接收数据
+        if (!this.socket || this.socket.readyState !== WebSocket.OPEN){
+          this.socket = new WebSocket("ws://10.43.121.31:8080/ws");
+        }
+
 
         try {
           const response = await axios.post("http://10.43.121.31:8080/api/question", {
             question: this.question,
           });
-          console.log("Server response:", response.data);
-        } catch (error) {
-          console.error("Error sending question:", error);
+          console.log("Request sent to Java:", response.data);
+
+          this.socket.onmessage = (event) => {
+            this.event_data = JSON.parse(event.data)
+            console.log("Received from Java:", this.event_data);
+
+            try {
+              switch (this.event_data.type) {
+                case "answer0":
+                  this.answer0 = this.event_data.data;
+                  this.messages.push({sender: 'bot', text: this.answer0});
+                  break;
+                case "answer1":
+                  this.answer1 =  marked(this.event_data.data);
+                  this.messages.push({sender: 'bot', text: this.answer1});
+                  break;
+                case "answer2" :
+                  this.answer2 = this.event_data.data;
+                  if (this.answer2.length != 0) {
+                    this.ans2 = this.process_answer2()
+                  }
+                  this.messages.push({sender: 'bot', text: this.ans2});
+                  break;
+                case "answer3":
+                  this.answer3 = this.event_data.data;
+                  if (this.answer3.length != 0) {
+                    console.log('Actual Graph Data:', this.answer3);
+                    // 渲染知识图谱
+                    this.renderGraph(this.answer3);
+                  }
+                  break;
+              }
+
+            } catch (error) {
+              console.error("Error fetching answer:", error);
+              this.messages.push({sender: 'bot', text: error.message});
+            }
+
+          };
+
+          this.socket.onopen = () => {
+            console.log("WebSocket connected to Java backend");
+          };
+
+          this.socket.onclose = () => {
+            console.log("WebSocket connection closed");
+          };
+
+        }catch (error) {
+          console.error("Error fetching answer:", error);
+          this.messages.push({sender: 'bot', text: error.message});
         }
       }
     },
 
-    process_answer2() {
+    process_answer2(){
+      this.temp_answer = ""
       this.temp_answer += "<div class='answer2-message'>";
       this.temp_answer += "<b>" + "参考文献：" + "</b>" + "<br>"
 
       this.title_list = []
 
-      for (this.item of this.answer2) {
+      for(this.item of this.answer2){
         this.flag = 0
-        for (this.title of this.title_list) {
-          if (this.item[2] == this.title) {
+        for(this.title of this.title_list){
+          if(this.item[2] == this.title){
             this.flag = 1
             break
           }
         }
-        if (this.flag == 0) {
+        if(this.flag == 0){
           this.title_list.push(this.item[2])
         }
       }
 
       this.count = 1
-      this.title_list.forEach(item => {
+      this.title_list.forEach(item=>{
         this.temp_answer += `${this.count}. ` + item + "<br>"
         this.count += 1
       })
 
       this.temp_answer += "</div>";
+      return this.temp_answer
     },
 
     renderGraph(graphs) {
@@ -242,6 +228,8 @@ export default {
       const chart = echarts.init(graphContainer);
       chart.setOption(option);
     }
+
+
   }
 };
 </script>
