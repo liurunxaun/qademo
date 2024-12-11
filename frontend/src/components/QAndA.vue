@@ -43,157 +43,123 @@ export default {
     };
   },
 
+  created() {
+    // 页面加载时创建独立的 WebSocket 连接
+    this.initWebSocket();
+  },
+
+  beforeUnmount() {
+    if (this.socket) {
+      this.socket.close();
+    }
+  },
+
   methods: {
+    initWebSocket() {
+      this.socket = new WebSocket("ws://10.43.121.31:8080/ws");
+      this.socket.onmessage = (event) => {
+        const eventData = JSON.parse(event.data);
+        this.handleServerMessage(eventData);
+      };
+
+      this.socket.onopen = () => {
+        console.log("WebSocket connected");
+      };
+
+      this.socket.onclose = () => {
+        console.log("WebSocket connection closed");
+      };
+
+      this.socket.onerror = (error) => {
+        console.error("WebSocket error:", error);
+      };
+    },
+
+    handleServerMessage(eventData) {
+      // 根据服务端返回数据类型处理
+      console.log("Received from server:", eventData);
+      // ...业务逻辑处理...
+      this.temp_answer = ""
+
+      try {
+        switch (eventData.type) {
+          case "answer0":
+            this.temp_answer += eventData.data;
+            this.messages.push({sender: 'bot', text: this.temp_answer});
+            break;
+          case "answer1":
+            this.temp_answer += marked(eventData.data);
+            this.messages.push({sender: 'bot', text: this.temp_answer});
+            break;
+          case "answer2" :
+            this.answer2 = eventData.data;
+            if (this.answer2.length != 0) {
+              this.process_answer2()
+            }
+            this.messages.push({sender: 'bot', text: this.temp_answer});
+            break;
+          case "answer3":
+            this.answer3 = eventData.data;
+            if (this.answer3.length != 0) {
+              console.log('Actual Graph Data:', this.answer3);
+              // 渲染知识图谱
+              this.renderGraph(this.answer3);
+            }
+            break;
+        }
+
+      } catch (error) {
+        console.error("Error fetching answer:", error);
+        this.messages.push({sender: 'bot', text: error.message});
+      }
+    },
+
     async sendMessage() {
       if (this.userInput.trim()) {
         this.question = this.userInput;
         this.userInput = '';
 
         // 用户消息
-        this.messages.push({ sender: 'user', text: this.question })
-
-        // 用于接收数据
-        this.socket = new WebSocket("ws://10.43.121.31:8080/ws");
-
-        // 为新的 bot 消息框占位
-        const messageId = Date.now(); // 使用时间戳作为唯一ID
-        this.messages.push({ id: messageId, sender: 'bot', text: '' });
+        this.messages.push({ sender: 'user', text: this.question });
 
         try {
           const response = await axios.post("http://10.43.121.31:8080/api/question", {
             question: this.question,
           });
-          console.log("Request sent to Java:", response.data);
-
-          this.socket.onmessage = (event) => {
-            this.event_data = JSON.parse(event.data)
-            console.log("Received from Java:", event.data);
-
-            // 使用当前的 messageId 追加内容
-            const targetMessage = this.messages.find(msg => msg.id === messageId);
-
-            if (targetMessage) {
-              try {
-                switch (this.event_data.type) {
-                  case "answer0":
-                    targetMessage.text += this.event_data.data;
-                    break;
-                  case "answer1":
-                    targetMessage.text += marked(this.event_data.data);
-                    break;
-                  case "answer2" :
-                    this.answer2 = this.event_data.data;
-                    if (this.answer2.length != 0) {
-                      this.process_answer2(targetMessage)
-                    }
-                    break;
-                  case "answer3":
-                    this.answer3 = this.event_data.data;
-                    if (this.answer3.length != 0) {
-                      console.log('Actual Graph Data:', this.answer3);
-                      // 渲染知识图谱
-                      this.renderGraph(this.answer3);
-                    }
-                    break;
-                  case "answer4":
-                    this.answer4 = this.event_data.data;
-                    if (this.answer4 != "") {
-                      targetMessage.text += "<b>" + "从问题中提取的实体包括：" + "</b>" + "<br>"
-                      targetMessage.text += this.event_data.data;
-                    }
-                    break;
-                }
-
-              }catch (error) {
-                console.error("Error fetching answer:", error);
-                // 模拟AI的回复
-                setTimeout(() => {
-                  this.messages.push({ sender: 'bot', text: error});
-                }, 1000);
-              }
-            }
-            else {
-              // 如果没有现有的消息框，创建一个新的（备用）
-              this.messages.push({ sender: 'bot', text: `<div>${this.event_data.data}</div>` });
-            }
-          };
-
-          this.socket.onopen = () => {
-            console.log("WebSocket connected to Java backend");
-          };
-
-          this.socket.onclose = () => {
-            console.log("WebSocket connection closed");
-          };
-
-        }catch (error) {
-          console.error("Error fetching answer:", error);
-          const targetMessage = this.messages.find(msg => msg.id === messageId);
-          if (targetMessage) {
-            targetMessage.text += error.message;
-          }
+          console.log("Server response:", response.data);
+        } catch (error) {
+          console.error("Error sending question:", error);
         }
       }
     },
 
-    process_answer2(lastMessage){
-      lastMessage.text += "<div class='answer2-message'>";
-      lastMessage.text += "<b>" + "参考文献：" + "</b>" + "<br>"
+    process_answer2() {
+      this.temp_answer += "<div class='answer2-message'>";
+      this.temp_answer += "<b>" + "参考文献：" + "</b>" + "<br>"
 
       this.title_list = []
 
-      for(this.item of this.answer2){
+      for (this.item of this.answer2) {
         this.flag = 0
-        for(this.title of this.title_list){
-          if(this.item[2] == this.title){
+        for (this.title of this.title_list) {
+          if (this.item[2] == this.title) {
             this.flag = 1
             break
           }
         }
-        if(this.flag == 0){
+        if (this.flag == 0) {
           this.title_list.push(this.item[2])
         }
       }
 
       this.count = 1
-      this.title_list.forEach(item=>{
-        lastMessage.text += `${this.count}. ` + item + "<br>"
+      this.title_list.forEach(item => {
+        this.temp_answer += `${this.count}. ` + item + "<br>"
         this.count += 1
       })
 
-      lastMessage.text += "</div> <br>";
+      this.temp_answer += "</div>";
     },
-
-    // process_answer2(){
-    //   this.temp_answer += "<br><div class='answer2-message'>";
-    //   this.entity_list = []
-    //
-    //   for(this.item of this.answer2){
-    //     this.flag = 0
-    //     for(this.entity of this.entity_list){
-    //       if (this.item[0] == this.entity[0]) {
-    //         this.entity[1] += this.item[1] + "<br>"
-    //         this.entity[2] += this.item[2] + "<br>"
-    //         this.flag = 1
-    //         break
-    //       }
-    //     }
-    //     if(this.flag == 0) {
-    //       this.entity_list.push([this.item[0], this.item[1], this.item[2]+"<br>"])
-    //     }
-    //   }
-    //
-    //   this.entity_list.forEach(items => {
-    //     this.temp_answer += "<b>" + "问题关键词：" + "</b>" + "<br>"
-    //     this.temp_answer += items[0] + "<br>"
-    //     this.temp_answer += "<b>" + "知识图谱匹配实体：" + "</b>" + "<br>"
-    //     this.temp_answer += items[1] + "<br>"
-    //     this.temp_answer += "<b>" + "参考文献：" + "</b>" + "<br>"
-    //     this.temp_answer += items[2] + "<br><br>"
-    //   })
-    //
-    //   this.temp_answer += "</div>";
-    // },
 
     renderGraph(graphs) {
       const graphData = graphs[0]; // 假设只可视化第一个子图
@@ -276,8 +242,6 @@ export default {
       const chart = echarts.init(graphContainer);
       chart.setOption(option);
     }
-
-
   }
 };
 </script>

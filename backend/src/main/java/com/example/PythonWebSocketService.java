@@ -19,24 +19,17 @@ public class PythonWebSocketService {
             pythonClient = new WebSocketClient(new URI("ws://10.43.108.62:8765")) {
                 @Override
                 public void onOpen(ServerHandshake handshakedata) {
-                    System.out.println("Connected to Python server");
+                    System.out.println("Connected to Python WebSocket");
                 }
 
                 @Override
                 public void onMessage(String message) {
-                    // 转发给 Vue 客户端
-                    for (WebSocketSession session : vueSessions) {
-                        try {
-                            session.sendMessage(new TextMessage(message));
-                        } catch (Exception e) {
-                            e.printStackTrace();
-                        }
-                    }
+                    broadcastToVueSessions(message);
                 }
 
                 @Override
                 public void onClose(int code, String reason, boolean remote) {
-                    System.out.println("Connection closed with Python: " + reason);
+                    System.out.println("Python WebSocket closed: " + reason);
                 }
 
                 @Override
@@ -51,8 +44,27 @@ public class PythonWebSocketService {
     }
 
     public void sendQuestionToPython(String question) {
-        if (pythonClient != null && pythonClient.isOpen()) {
-            pythonClient.send(question);
+        try {
+            if (pythonClient != null && pythonClient.isOpen()) {
+                pythonClient.send(question);
+                System.out.println("Sent question to Python: " + question);
+            } else {
+                System.out.println("Python WebSocket is not open. Cannot send question.");
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+
+    public void broadcastToVueSessions(String message) {
+        for (WebSocketSession session : vueSessions) {
+            try {
+                if (session.isOpen()) {
+                    session.sendMessage(new TextMessage(message));
+                }
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
         }
     }
 
